@@ -138,7 +138,7 @@ for region in regions_validated:
 
      # Search for custom images
      print(yellow(f"\r   => Searching for custom images in {region.region_name}" + "..."  + " " * 20),end="\r", flush=True)
-     print(" " * 150, end="\r")
+     #print(" " * 150, end="\r")
 
      images=search_images(
           config,
@@ -161,12 +161,14 @@ for region in regions_validated:
 
      # Process each custom image
      for image in images.data:
+          print(yellow(f"\r   => Analyzing custom image: {image.display_name}" + "..."  + " " * 60),end="\r", flush=True)
+          #print(" " * 150, end="\r")
           try:
                compartment_name=get_compartment_name(identity_client, image.compartment_id)
                image=core_client.get_image(image.identifier).data
 
-               if image.lifecycle_state == "Available":
-                    capabilities=core_client.list_compute_image_capability_schemas(image_id=image.identifier).data
+               if image.lifecycle_state == "AVAILABLE":
+                    capabilities=core_client.list_compute_image_capability_schemas(image_id=image.id).data
 
                     if capabilities == []:
                          print(cyan(f"FIXING IMAGE:"))
