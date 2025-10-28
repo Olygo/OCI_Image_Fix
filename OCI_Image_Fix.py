@@ -28,9 +28,9 @@ from modules.identity import *
 from modules.arguments import get_cmd_arguments, get_missing_arguments
 from modules.search import search_images, set_search_query
 
-script_version = version
-script_path = os.path.abspath(__file__)
-script_name = (os.path.basename(script_path))[:-3]
+script_version=version
+script_path=os.path.abspath(__file__)
+script_name=(os.path.basename(script_path))[:-3]
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Clear shell screen
@@ -42,7 +42,7 @@ clear()
 # - - - - - - - - - - - - - - - - - - - - - - - - - -
 args=get_cmd_arguments()
 args=get_missing_arguments(args)
-args_dict = vars(args)
+args_dict=vars(args)
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Init OCI authentication
@@ -151,7 +151,7 @@ for region in regions_validated:
      for item in capabilities:
           try:
                if isinstance(item.schema_data, dict):
-                    compute_amd_secure_encryption = item.schema_data.get('Compute.AMD_SecureEncryptedVirtualization')
+                    compute_amd_secure_encryption=item.schema_data.get('Compute.AMD_SecureEncryptedVirtualization')
                     if compute_amd_secure_encryption.source == "IMAGE":
                          schema_data=item.schema_data
                          compute_global_image_capability_schema_version_name=item.compute_global_image_capability_schema_version_name
@@ -162,32 +162,34 @@ for region in regions_validated:
      # Process each custom image
      for image in images.data:
           try:
-               capabilities=core_client.list_compute_image_capability_schemas(image_id=image.identifier).data
+               compartment_name=get_compartment_name(identity_client, image.compartment_id)
+               image=core_client.get_image(image.identifier).data
 
-               if capabilities == []:
-                    compartment_name = get_compartment_name(identity_client, image.compartment_id)
-                    image = core_client.get_image(image.identifier).data
-                    print(cyan(f"FIXING IMAGE:"))
-                    print(cyan(f"  name: {image.display_name}"))
-                    print(cyan(f"  ocid: {image.id}"))
-                    print(cyan(f"  compartment: {compartment_name}"))
-                    print(cyan(f"  region: {region.region_name}"))
+               if image.lifecycle_state == "Available":
+                    capabilities=core_client.list_compute_image_capability_schemas(image_id=image.identifier).data
 
-                    create_compute_image_capability_schema_response = core_client.create_compute_image_capability_schema(
-                    create_compute_image_capability_schema_details=oci.core.models.CreateComputeImageCapabilitySchemaDetails(
-                         compartment_id=image.compartment_id,
-                         compute_global_image_capability_schema_version_name=compute_global_image_capability_schema_version_name,
-                         image_id=image.id,
-                         schema_data=schema_data
+                    if capabilities == []:
+                         print(cyan(f"FIXING IMAGE:"))
+                         print(cyan(f"  name: {image.display_name}"))
+                         print(cyan(f"  ocid: {image.id}"))
+                         print(cyan(f"  compartment: {compartment_name}"))
+                         print(cyan(f"  region: {region.region_name}"))
+
+                         create_compute_image_capability_schema_response=core_client.create_compute_image_capability_schema(
+                         create_compute_image_capability_schema_details=oci.core.models.CreateComputeImageCapabilitySchemaDetails(
+                              compartment_id=image.compartment_id,
+                              compute_global_image_capability_schema_version_name=compute_global_image_capability_schema_version_name,
+                              image_id=image.id,
+                              schema_data=schema_data
+                                   )
                               )
-                         )
-                    # Check if capabilities have been added 
-                    capabilities=core_client.list_compute_image_capability_schemas(image_id=image.id).data
+                         # Check if capabilities have been added 
+                         capabilities=core_client.list_compute_image_capability_schemas(image_id=image.id).data
 
-                    if capabilities != []:
-                         print(green("  update: completed\n"))
-                    else:
-                         print(red("  update: failed\n"))
+                         if capabilities != []:
+                              print(green("  update: completed\n"))
+                         else:
+                              print(red("  update: failed\n"))
 
           except Exception as e:
                if hasattr(e, "code") and hasattr(e, "message"):
