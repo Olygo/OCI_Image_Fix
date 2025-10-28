@@ -167,7 +167,7 @@ for region in regions_validated:
                image=core_client.get_image(image.identifier).data
 
                # sometimes search can return images from another region...
-               if region.region_name in image.id:
+               if region.region_name or region.region_key in image.id:
                     if image.lifecycle_state == "AVAILABLE":
                          capabilities=core_client.list_compute_image_capability_schemas(image_id=image.id).data
 
