@@ -172,10 +172,11 @@ for region in regions_validated:
                     if capabilities == []:
                          print(" " * 150, end="\r")
                          print(cyan(f"FIXING IMAGE:"))
-                         print(cyan(f"  name: {image.display_name}"))
-                         print(cyan(f"  ocid: {image.id}"))
-                         print(cyan(f"  compartment: {compartment_name}"))
-                         print(cyan(f"  region: {region.region_name}"))
+                         print(cyan(f"{'  - name:':<20} {image.display_name}"))
+                         print(cyan(f"{'  - created on:':<20} {image.time_created.strftime('%Y-%m-%d')}"))
+                         print(cyan(f"{'  - ocid:':<20} {image.id}"))
+                         print(cyan(f"{'  - compartment:':<20} {compartment_name}"))
+                         print(cyan(f"{'  - region:':<20} {region.region_name}"))
 
                          create_compute_image_capability_schema_response=core_client.create_compute_image_capability_schema(
                          create_compute_image_capability_schema_details=oci.core.models.CreateComputeImageCapabilitySchemaDetails(
@@ -189,15 +190,20 @@ for region in regions_validated:
                          capabilities=core_client.list_compute_image_capability_schemas(image_id=image.id).data
 
                          if capabilities != []:
-                              print(green("  update: completed\n"))
+                              print(green(f"{'  - update:':<20} completed\n"))
                          else:
-                              print(red("  update: failed\n"))
+                              print(red(f"{'  - update:':<20} failed\n"))
 
           except Exception as e:
+
                if hasattr(e, "code") and hasattr(e, "message"):
-                    print_error(e.code, e.message)
+                    #print_error(e.code, e.message)
+                    print(red(f"{'  - error code:':<20} {e.code}"))
+                    print(red(f"{'  - error message:':<20} {e.message}\n"))
                else:
-                    print_error(e)
+                    #print_error(e)
+                    print(red(f"{'  - error message:':<20} {e.message}\n"))
+
                continue
 
 print(" " * 100, end="\r")
