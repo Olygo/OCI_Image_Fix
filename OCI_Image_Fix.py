@@ -166,33 +166,35 @@ for region in regions_validated:
                compartment_name=get_compartment_name(identity_client, image.compartment_id)
                image=core_client.get_image(image.identifier).data
 
-               if image.lifecycle_state == "AVAILABLE":
-                    capabilities=core_client.list_compute_image_capability_schemas(image_id=image.id).data
-
-                    if capabilities == []:
-                         print(" " * 150, end="\r")
-                         print(cyan(f"FIXING IMAGE:"))
-                         print(cyan(f"{'  - name:':<20} {image.display_name}"))
-                         print(cyan(f"{'  - created on:':<20} {image.time_created.strftime('%Y-%m-%d')}"))
-                         print(cyan(f"{'  - ocid:':<20} {image.id}"))
-                         print(cyan(f"{'  - compartment:':<20} {compartment_name}"))
-                         print(cyan(f"{'  - region:':<20} {region.region_name}"))
-
-                         create_compute_image_capability_schema_response=core_client.create_compute_image_capability_schema(
-                         create_compute_image_capability_schema_details=oci.core.models.CreateComputeImageCapabilitySchemaDetails(
-                              compartment_id=image.compartment_id,
-                              compute_global_image_capability_schema_version_name=compute_global_image_capability_schema_version_name,
-                              image_id=image.id,
-                              schema_data=schema_data
-                                   )
-                              )
-                         # Check if capabilities have been added 
+               # sometimes search can return images from another region...
+               if region.region_name in image.id:
+                    if image.lifecycle_state == "AVAILABLE":
                          capabilities=core_client.list_compute_image_capability_schemas(image_id=image.id).data
 
-                         if capabilities != []:
-                              print(green(f"{'  - update:':<20} completed\n"))
-                         else:
-                              print(red(f"{'  - update:':<20} failed\n"))
+                         if capabilities == []:
+                              print(" " * 150, end="\r")
+                              print(cyan(f"FIXING IMAGE:"))
+                              print(cyan(f"{'  - name:':<20} {image.display_name}"))
+                              print(cyan(f"{'  - created on:':<20} {image.time_created.strftime('%Y-%m-%d')}"))
+                              print(cyan(f"{'  - ocid:':<20} {image.id}"))
+                              print(cyan(f"{'  - compartment:':<20} {compartment_name}"))
+                              print(cyan(f"{'  - region:':<20} {region.region_name}"))
+
+                              create_compute_image_capability_schema_response=core_client.create_compute_image_capability_schema(
+                              create_compute_image_capability_schema_details=oci.core.models.CreateComputeImageCapabilitySchemaDetails(
+                                   compartment_id=image.compartment_id,
+                                   compute_global_image_capability_schema_version_name=compute_global_image_capability_schema_version_name,
+                                   image_id=image.id,
+                                   schema_data=schema_data
+                                        )
+                                   )
+                              # Check if capabilities have been added 
+                              capabilities=core_client.list_compute_image_capability_schemas(image_id=image.id).data
+
+                              if capabilities != []:
+                                   print(green(f"{'  - update:':<20} completed\n"))
+                              else:
+                                   print(red(f"{'  - update:':<20} failed\n"))
 
           except Exception as e:
 
