@@ -161,7 +161,7 @@ for region in regions_validated:
 
      # Process each custom image
      for image in images.data:
-          print(yellow(f"\r   => Analyzing custom image: {image.display_name}" + "..."  + " " * 60),end="\r", flush=True)
+          print(yellow(f"\r   => Analyzing [{region.region_key}] custom image: {image.display_name}" + "..."  + " " * 60),end="\r", flush=True)
           try:
                compartment_name=get_compartment_name(identity_client, image.compartment_id)
                image=core_client.get_image(image.identifier).data
