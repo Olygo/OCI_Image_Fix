@@ -4,7 +4,7 @@
 # name: OCI_Image_Fix.py
 #
 # Author: Florian Bonneville
-# Version: 1.0.0 - Oct 28th, 2025
+# Version: 2.0.0 - Nov 3rd, 2025
 #
 # Disclaimer: 
 # This script is an independent tool developed by 
@@ -17,14 +17,15 @@
 #
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-version="1.0.0"
+version="2.0.0"
 
 import os
 import oci
 import time
 from datetime import datetime
-from modules.utils import *
-from modules.identity import *
+from modules.utils import clear, path_expander, print_info, check_folder, init_csv_report, check_file_size, format_duration
+from modules.compute import get_schema, image_fix
+from modules.identity import init_authentication, validate_region_connectivity, get_home_region, get_region_subscription_list, get_compartment_list, check_bucket, upload_file
 from modules.arguments import get_cmd_arguments, get_missing_arguments
 from modules.search import search_images, set_search_query
 
@@ -64,6 +65,7 @@ clear()
 print(green(f"\n{'*'*94:94}"))
 print_info(green, "Script", "started", script_name)
 print_info(green, "Script", "version", script_version)
+print_info(green, "Script", "action", "dry run" if args.dryrun else "fix images")
 print_info(green, "Login", "success", auth_name)
 print_info(green, "Login", "profile", details.lower())
 print_info(green, "Tenancy", "name", tenancy.name)
@@ -78,8 +80,12 @@ identity_client=oci.identity.IdentityClient(
      )
 search_client=oci.resource_search.ResourceSearchClient(
      config=config,
-     signer=signer)
-
+     signer=signer
+     )
+obj_storage_client=oci.object_storage.ObjectStorageClient(
+     config=config,
+     signer=signer
+     )
 tenancy_id=config["tenancy"]
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -116,8 +122,46 @@ print_info(green, "Compartment", "name", root_compartment_name)
 print_info(green, "Compartment", "child", len(my_compartments))
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - -
+# set csv report folder
+# - - - - - - - - - - - - - - - - - - - - - - - - - -
+report_folder = path_expander(args.report_folder if args.report_folder else './')
+check_folder(report_folder, output=True)
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - -
+# init csv report file
+# - - - - - - - - - - - - - - - - - - - - - - - - - -
+now = datetime.today().strftime('%Y%m%d_%H%M')
+base_report_name = args.report_name if args.report_name else 'oci_custom_images'
+full_report_name = f'{base_report_name}_{now}.csv'
+csv_report = os.path.join(report_folder, full_report_name)
+init_csv_report(csv_report)
+print_info(green, 'Report', 'name', str(full_report_name[:32])+'...')
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check report bucket
+# - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+if not args.noupload:
+     report_bucket = args.report_bucket if args.report_bucket else 'oci_custom_images'
+
+     bucket, bucket_comp, bucket_state = check_bucket(
+          identity_client,
+          search_client,
+          obj_storage_client,
+          top_level_compartment_id, 
+          report_bucket,
+          tenancy_id)
+     
+     if bucket_state:
+          print_info(green, 'Report', 'bucket', bucket.name)
+          print_info(green, 'Report', 'compartment', bucket_comp.name)
+     else:
+          args.noupload = True
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - -
 # End print script info
 # - - - - - - - - - - - - - - - - - - - - - - - - - -
+print_info(green, 'Report', 'location', 'local+cloud' if not args.noupload else 'local only')
 print(green(f"{'*'*94:94}\n"))
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -126,90 +170,102 @@ print(green(f"{'*'*94:94}\n"))
 analysis_start=time.perf_counter()
 
 # Iterate over regions
+images_dict={}
 for region in regions_validated:
-
+     
      config["region"]=region.region_name
-
      identity_client=oci.identity.IdentityClient(config=config, signer=signer)
      core_client=oci.core.ComputeClient(config=config, signer=signer)
 
-     # Construct a custom image search query based on the provided arguments
-     images_query=set_search_query(args, my_compartments)
+     # Retrieve schema_data and schema_version_name
+     schema_data, schema_version_name=get_schema(core_client)
 
-     # Search for custom images
-     print(yellow(f"\r   => Searching for custom images in {region.region_name}" + "..."  + " " * 20),end="\r", flush=True)
-     #print(" " * 150, end="\r")
+     # Init image counter per region
+     total_images_count = 0
 
-     images=search_images(
-          config,
-          signer, 
-          images_query
-          )
+     if args.image_id:
+          count=image_fix(
+               identity_client,
+               core_client,
+               args.image_id,
+               region,
+               schema_data,
+               schema_version_name,
+               csv_report,
+               args.dryrun
+               )
 
-     capabilities=core_client.list_compute_image_capability_schemas().data
+          total_images_count = total_images_count + count
+     else:
+          # Construct a custom image search query based on the provided arguments
+          images_query=set_search_query(args, my_compartments)
 
-     for item in capabilities:
-          try:
-               if isinstance(item.schema_data, dict):
-                    compute_amd_secure_encryption=item.schema_data.get('Compute.AMD_SecureEncryptedVirtualization')
-                    if compute_amd_secure_encryption.source == "IMAGE":
-                         schema_data=item.schema_data
-                         compute_global_image_capability_schema_version_name=item.compute_global_image_capability_schema_version_name
-                         break
-          except:
-               pass
+          # Search for custom images
+          print(yellow(f"\r   => Searching for custom images in {region.region_name}" + "..."  + " " * 20),end="\r", flush=True)
+          #print(" " * 150, end="\r")
 
-     # Process each custom image
-     for image in images.data:
-          print(yellow(f"\r   => Analyzing [{region.region_key}] custom image: {image.display_name}" + "..."  + " " * 60),end="\r", flush=True)
-          try:
-               compartment_name=get_compartment_name(identity_client, image.compartment_id)
-               image=core_client.get_image(image.identifier).data
+          # Collect custom images in the region
+          images=search_images(
+               config,
+               signer, 
+               images_query
+               )
 
-               # sometimes search can return images from another region...
-               if region.region_name or region.region_key in image.id:
-                    if image.lifecycle_state == "AVAILABLE":
-                         capabilities=core_client.list_compute_image_capability_schemas(image_id=image.id).data
+          # Analyze each image found
+          for image in images.data:
+               count=image_fix(
+                    identity_client,
+                    core_client,
+                    image.identifier,
+                    region,
+                    schema_data,
+                    schema_version_name,
+                    csv_report,
+                    args.dryrun
+                    )
 
-                         if capabilities == []:
-                              print(" " * 150, end="\r")
-                              print(cyan(f"FIXING IMAGE:"))
-                              print(cyan(f"{'  - name:':<20} {image.display_name}"))
-                              print(cyan(f"{'  - created on:':<20} {image.time_created.strftime('%Y-%m-%d')}"))
-                              print(cyan(f"{'  - ocid:':<20} {image.id}"))
-                              print(cyan(f"{'  - compartment:':<20} {compartment_name}"))
-                              print(cyan(f"{'  - region:':<20} {region.region_name}"))
+               total_images_count = total_images_count + count
 
-                              create_compute_image_capability_schema_response=core_client.create_compute_image_capability_schema(
-                              create_compute_image_capability_schema_details=oci.core.models.CreateComputeImageCapabilitySchemaDetails(
-                                   compartment_id=image.compartment_id,
-                                   compute_global_image_capability_schema_version_name=compute_global_image_capability_schema_version_name,
-                                   image_id=image.id,
-                                   schema_data=schema_data
-                                        )
-                                   )
-                              # Check if capabilities have been added 
-                              capabilities=core_client.list_compute_image_capability_schemas(image_id=image.id).data
+     # Record image count in the region
+     images_dict[region.region_name]=total_images_count
 
-                              if capabilities != []:
-                                   print(green(f"{'  - update:':<20} completed\n"))
-                              else:
-                                   print(red(f"{'  - update:':<20} failed\n"))
+print(" " * 150, end="\r")
 
-          except Exception as e:
+print(green("\nREPORT SUMMARY:"))
+if not check_file_size(csv_report, 230) == False:
+     print(green(f"{'  - Path:':<25} {report_folder[:100]}"))
+     print(green(f"{'  - File:':<25} {full_report_name}"))
+     file_size, file_control = check_file_size(csv_report, 230)
+     print(green(f"{'  - Size:':<25} {file_size}"))
 
-               if hasattr(e, "code") and hasattr(e, "message"):
-                    #print_error(e.code, e.message)
-                    print(red(f"{'  - error code:':<20} {e.code}"))
-                    print(red(f"{'  - error message:':<20} {e.message}\n"))
-               else:
-                    #print_error(e)
-                    print(red(f"{'  - error message:':<20} {e.message}\n"))
+     if not args.noupload:
+          upload_file(
+               obj_storage_client,
+               bucket.name,
+               csv_report,
+               full_report_name,
+               tenancy_id)
 
-               continue
+          print(green(f"{'  - Tenancy:':<25} {tenancy.name}"))
+          print(green(f"{'  - Region:':<25} {tenancy.home_region_key}"))
+          print(green(f"{'  - Compartment:':<25} {bucket_comp.name}"))
+          print(green(f"{'  - Bucket:':<25} {bucket.name}"))
 
-print(" " * 100, end="\r")
+# Sort regions dict
+images_dict = {k: images_dict[k] for k in sorted(images_dict)}
+
+def check_dict(dict):
+    return False if all(v == 0 for v in dict.values()) else True
+
+if check_dict(images_dict):
+     print(green(f"{'  - Custom images:':<25} {sum(images_dict.values())}"))
+     for region, count in images_dict.items():
+          if count > 0:
+               print(green(f"{'    * ' + region + ':':<25} {count}"))
+
+else:
+     print(green(f"  - No custom images analyzed"))
 
 analysis_end=time.perf_counter()
 execution_time=analysis_end - analysis_start
-print(green(f"\nExecution time: {format_duration(execution_time)}\n"))
+print(green(f"{'  - Execution time:':<25} {format_duration(execution_time)}\n"))

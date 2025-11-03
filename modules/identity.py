@@ -5,7 +5,7 @@ import os
 import inspect
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from modules.utils import clear, green, yellow, red, print_error, print_info, path_expander
+from modules.utils import clear, green, yellow, red, print_error, print_info, path_expander, check_file_size
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set custom retry strategy
@@ -423,4 +423,139 @@ def get_compartment_name(identity_client, compartment_id):
             print_error(f"An error occurred in -- {function_name} --:", e.code, e.message)
         else:
             print_error(f"An error occurred in -- {function_name} --:", e)
+        raise SystemExit(1)
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Check compartment state
+# - - - - - - - - - - - - - - - - - - - - - - - - - -
+def check_compartment_state(identity_client, compartment_id):
+
+    """
+    Check if a compartment is ACTIVE
+    """
+
+    try:
+        # Retrieve compartment details from OCI using the provided compartment_id
+        compartment=identity_client.get_compartment(compartment_id).data
+
+        # Check if the compartment's lifecycle state is "ACTIVE"
+        if compartment.lifecycle_state == "ACTIVE":
+            #print_info(green, "Compartment", "analyzed", compartment.name)
+            #print_info(green, "Compartment", "state", str(compartment.lifecycle_state).lower())
+            return
+        else:
+            # Print an error message if the compartment is not active and exit the program
+            print_error(
+                "Compartment:", 
+                compartment.name, 
+                "is in an unexpected state:", 
+                compartment.lifecycle_state
+            )
+            raise SystemExit(1)
+
+    except Exception as e:
+        function_name=inspect.currentframe().f_code.co_name
+        if hasattr(e, "code") and hasattr(e, "message"):
+            print_error(f"An error occurred in -- {function_name} --:", e.code, e.message)
+        else:
+            print_error(f"An error occurred in -- {function_name} --:", e)
+        raise SystemExit(1)
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - -
+# check if bucket already exists
+# - - - - - - - - - - - - - - - - - - - - - - - - - -
+def check_bucket(identity_client, search_client, obj_storage_client, report_comp, report_bucket, tenancy_id):
+
+    try:
+        namespace = obj_storage_client.get_namespace().data
+
+        search_resource_details=oci.resource_search.models.StructuredSearchDetails(
+            query=f'query bucket resources where displayname == "{report_bucket}"',
+            type="Structured",
+            matching_context_type=oci.resource_search.models.SearchDetails.MATCHING_CONTEXT_TYPE_NONE)
+
+        all_resources=oci.pagination.list_call_get_all_results(
+            search_client.search_resources, 
+            search_resource_details,
+            ).data
+
+        if all_resources:
+            found_bucket = all_resources[0]
+            bucket = obj_storage_client.get_bucket(namespace, found_bucket.display_name).data
+            bucket_comp = identity_client.get_compartment(bucket.compartment_id).data
+
+            return bucket, bucket_comp, True
+
+        else:
+            create_bucket_details = oci.object_storage.models.CreateBucketDetails(
+                                                                                public_access_type = 'NoPublicAccess',
+                                                                                storage_tier = 'Standard',
+                                                                                versioning = 'Disabled',
+                                                                                name = report_bucket,
+                                                                                compartment_id = report_comp)
+            print_info(yellow, 'Bucket', 'creating', report_bucket)
+
+            # create bucket 
+            obj_storage_client.create_bucket(namespace, create_bucket_details)
+            result_response = obj_storage_client.get_bucket(namespace, report_bucket)
+            wait_until_bucket_available_response = oci.wait_until(
+                                                                obj_storage_client,
+                                                                result_response,
+                                                                'etag',
+                                                                result_response.data.etag)
+
+            print_info(yellow, 'Bucket', 'created', wait_until_bucket_available_response.data.name)
+
+            bucket = obj_storage_client.get_bucket(namespace, wait_until_bucket_available_response.data.name).data
+            bucket_comp = identity_client.get_compartment(bucket.compartment_id).data
+
+            return bucket, bucket_comp, True
+
+    except Exception as e:
+        function_name=inspect.currentframe().f_code.co_name
+        if hasattr(e, "code") and hasattr(e, "message"):
+            print_error(f"An error occurred in -- {function_name} --:", e.code, e.message)
+        else:
+            print_error(f"An error occurred in -- {function_name} --:", e)
+        return None, None, False
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - -
+# upload report to OCI object storage
+# - - - - - - - - - - - - - - - - - - - - - - - - - -
+def upload_file(obj_storage_client, report_bucket, csv_report, report_name, tenancy_id):
+
+    try:
+        file_size, file_control = check_file_size(csv_report, 150)
+        if file_control:
+            namespace = obj_storage_client.get_namespace(compartment_id=tenancy_id).data
+
+            # upload report to oci
+            with open(csv_report, 'rb') as in_file:
+                upload_response = obj_storage_client.put_object(
+                                                                namespace,
+                                                                report_bucket,
+                                                                report_name,
+                                                                in_file)
+
+            # list objects in bucket and check md5 of uploaded file
+            object_list = obj_storage_client.list_objects(
+                                                        namespace,
+                                                        report_bucket, 
+                                                        fields=['md5'])
+
+            for item in object_list.data.objects:
+                if item.md5 == upload_response.headers['opc-content-md5']:
+                    #print(green(f"{'  - Report:':<25} {item.name}"))
+                    print(green(f"{'  - Upload:':<25} success"))
+                    print(green(f"{'  - MD5 checksum:':<25} {item.md5}"))
+
+                    ## remove local report
+                    #os.remove(csv_report)
+                    break
+        else:
+            print(green(f"{'  - File size:':<25} {file_size}"))
+            print(green(f"{'  - Upload:':<25} canceled"))
+
+    except Exception as e:
+        print_error("upload_file error", e)
         raise SystemExit(1)

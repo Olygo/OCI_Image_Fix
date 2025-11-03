@@ -37,6 +37,38 @@ def get_cmd_arguments():
                             dest="target_region",
                             help="Region name to analyze, e.g. 'eu-frankfurt-1' or 'all_regions', default is home region"
                             )
+        parser.add_argument("-image",
+                            default="",
+                            dest="image_id",
+                            help="ocid of a specific image to fix"
+                            )
+        parser.add_argument('-dryrun',
+                            action='store_true',
+                            default=False,
+                            dest='dryrun',
+                            help='Report only, no change apply'
+                            )
+        parser.add_argument('-bucket', 
+                            default='',
+                            dest='report_bucket',
+                            help='Bucket name to store the report, default: OCI_Custom_Images'
+                            )
+        parser.add_argument('-rf',
+                            default='./',
+                            dest='report_folder',
+                            help='Local folder path to store the report, default: ./'
+                            )
+        parser.add_argument('-rn',
+                            default='oci_custom_images',
+                            dest='report_name',
+                            help='Name of the CSV report'
+                            )
+        parser.add_argument('-noupload',
+                            action='store_true',
+                            default=False,
+                            dest='noupload',
+                            help='Do not upload the report to OCI Storage'
+                            )
         return parser.parse_args()
 
 def get_missing_arguments(args):
@@ -59,7 +91,12 @@ def get_missing_arguments(args):
                 args.config_file_path="~/.oci/config" if not args.config_file_path else args.config_file_path
                 args.config_profile="DEFAULT" if not args.config_profile else args.config_profile
 
-        if not args.target_region :
+        if args.image_id:
+            if not args.target_region :
+                region_select=input(yellow("\nYou must specify the region name when targeting an image ocid (e.g. eu-frankfurt-1)")).strip().lower()
+                args.target_region=region_select
+
+        if not args.image_id and not args.target_region :
             region_select = "all_regions"
             args.target_region=region_select
 

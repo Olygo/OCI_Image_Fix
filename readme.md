@@ -1,7 +1,10 @@
 # OCI_Image_Fix
 
 This script quickly identifies custom images that lack an Image Capabilities Schema and automatically updates them by generating a corresponding Image Capabilities Schema.
-**Image capabilities** are the configuration options available when launching an instance from an image. Some image capability examples are the firmware used to boot the instance, the volume attachment types supported, and so on.
+**Image capabilities** are the configuration options available when launching an instance from an image. 
+Some image capability examples are the firmware used to boot the instance, the volume attachment types supported, and so on.
+
+![04](./.images/screen04.png)
 
 ## Quick Start
 
@@ -41,6 +44,20 @@ OCI_Image_Fix can be fully automated using the following arguments:
 | -profile        | config_profile       | Config file section to use, default: 'DEFAULT'                                                        | 
 | -compid         | compartment_ocid     | Target a compartment when you do not have Admin rights at the tenancy level                           | 
 | -region         | region_name          | Region name to analyze, e.g. "eu-frankfurt-1" or "all_regions", default: 'home_region'                | 
+| -image          | image_ocid           | Fix a single custom image only, this option requires '-region'						                 | 
+| -dryrun         | 		             | Report only without modifying any custom image										                 | 
+| -bucket         | bucket-name		     | Bucket name to store the report, default: OCI_Custom_Images											 | 
+| -rf             | report_folder		 | Local folder path to store the report, default: ./'													 | 
+| -rn             | report_name  		 | Name of the CSV report, default: oci_custom_images_YYYYMMDD_HHMM										 | 
+| -noupload       | 					 | Do not upload the report to OCI Storage																 | 
+
+## Report
+
+The generated CSV report lists all custom images within the tenancy or the target compartment, including when running in dry-run mode. It contains a "schema" column with values True or False, indicating whether each image requires correction.
+
+![02](./.images/screen02.png)
+
+![03](./.images/screen03.png)
 
 ## Examples of Usage
 ##### Default :
@@ -63,7 +80,7 @@ try all authentication methods, search for all custom images across the whole te
 
 ## Screenshots
 
-##### Default run, prompt user for a compute shape name :
+##### Script output :
 ![01](./.images/screen01.png)
 
 
