@@ -23,7 +23,7 @@ import os
 import oci
 import time
 from datetime import datetime
-from modules.utils import clear, path_expander, print_info, check_folder, init_csv_report, check_file_size, format_duration
+from modules.utils import clear, path_expander, print_info, check_folder, init_csv_report, check_file_size, format_duration, green, yellow
 from modules.compute import get_schema, image_fix
 from modules.identity import init_authentication, validate_region_connectivity, get_home_region, get_region_subscription_list, get_compartment_list, check_bucket, upload_file
 from modules.arguments import get_cmd_arguments, get_missing_arguments
